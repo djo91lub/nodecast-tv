@@ -218,6 +218,12 @@ class VideoPlayer {
             togglePlay();
         });
 
+        // Stop button (ends playback and the server-side transcode session)
+        document.getElementById('btn-stop')?.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.stop();
+        });
+
         // Center play button (large button shown when paused)
         const centerPlayBtn = document.getElementById('player-center-play');
         centerPlayBtn?.addEventListener('click', (e) => {
@@ -779,6 +785,11 @@ class VideoPlayer {
      * Play a channel
      */
     async play(channel, streamUrl) {
+        
+        if(this.currentChannel != channel && channel?.zapBeforeStreaming){
+            await this.zapBeforeStreaming(channel, streamUrl);
+        }
+
         this.currentChannel = channel;
 
         try {
@@ -830,6 +841,7 @@ class VideoPlayer {
                         this.updateTranscodeStatus(statusMode, statusText);
                         if (this.playbackGeneration !== playbackGeneration) return;
                         const playlistUrl = await this.startTranscodeSession(streamUrl, {
+                            program: channel?.program || null,
                             videoMode,
                             videoCodec: info.video,
                             audioCodec: info.audio,
@@ -880,7 +892,7 @@ class VideoPlayer {
                 console.log(`[Player] ${statusText} enabled. Starting session (encode)...`);
                 this.updateTranscodeStatus(statusMode, statusText);
                 if (this.playbackGeneration !== playbackGeneration) return;
-                const playlistUrl = await this.startTranscodeSession(streamUrl, { videoMode: 'encode' });
+                const playlistUrl = await this.startTranscodeSession(streamUrl, { program: channel?.program || null, videoMode: 'encode' });
                 if (!playlistUrl || this.playbackGeneration !== playbackGeneration) return;
                 this.currentUrl = playlistUrl;
 
@@ -903,7 +915,7 @@ class VideoPlayer {
                 } catch (e) { console.warn('Probe failed for force audio, assuming h264'); }
 
                 if (this.playbackGeneration !== playbackGeneration) return;
-                const playlistUrl = await this.startTranscodeSession(streamUrl, { videoMode: 'copy', videoCodec });
+                const playlistUrl = await this.startTranscodeSession(streamUrl, { program: channel?.program || null, videoMode: 'copy', videoCodec });
                 if (!playlistUrl || this.playbackGeneration !== playbackGeneration) return;
                 this.currentUrl = playlistUrl;
 
@@ -1479,6 +1491,40 @@ class VideoPlayer {
             this.container.requestFullscreen();
         }
     }
+
+    async zapBeforeStreaming(channel, streamUrl) {
+        if (!channel?.zapBeforeStreaming) return;
+        if (!channel?.streamId || !streamUrl) return;
+
+        const delay = parseInt(channel.zapDelay) || 1500;
+
+        try {
+            console.log('[ZAP] before streaming:', {
+                channel: channel.name,
+                serviceRef: channel.streamId,
+                delay
+            });
+
+            // The server resolves the receiver from the configured source
+            const res = await fetch('/api/openwebif/zap', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    sourceId: channel.sourceId,
+                    streamId: channel.streamId
+                })
+            });
+
+            if (!res.ok) {
+                console.warn('[ZAP] backend returned:', res.status);
+            }
+
+            await new Promise(resolve => setTimeout(resolve, delay));
+        } catch (err) {
+            console.warn('[ZAP] failed, continuing stream:', err);
+        }
+    }
+
 }
 
 // Export

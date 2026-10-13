@@ -33,7 +33,9 @@ transcodeSession.startCleanupInterval();
  * Body: { url: string, seekOffset?: number }
  */
 router.post('/session', startupLimit, async (req, res) => {
-    const { url, seekOffset, videoMode, videoCodec, audioCodec, audioChannels, videoHeight, playbackLeaseId, requestSequence, isLive } = req.body;
+    const { url, seekOffset, videoMode, videoCodec, audioCodec, audioChannels, videoHeight, playbackLeaseId, requestSequence, isLive, program } = req.body;
+    // MPEG-TS program number (Enigma2 multi-program streams); digits only
+    const programNumber = /^\d+$/.test(String(program ?? '')) ? String(program) : null;
     const normalizedSeek = Number(seekOffset ?? 0);
     if (!Number.isFinite(normalizedSeek) || normalizedSeek < 0) return res.status(400).json({ error: "Invalid seek offset" });
     let session = null, disconnected = false;
@@ -72,7 +74,8 @@ router.post('/session', startupLimit, async (req, res) => {
             videoCodec: videoCodec, // 'h264', 'hevc', etc.
             audioCodec: audioCodec, // 'aac', 'ac3', etc.
             audioChannels: audioChannels, // number of channels (2=stereo)
-            videoHeight: videoHeight // source height from probe; used to cap max-resolution in JS
+            videoHeight: videoHeight, // source height from probe; used to cap max-resolution in JS
+            program: programNumber
         });
 
         if (disconnected) { await transcodeSession.removeSession(session.id, req.user.id); return; }

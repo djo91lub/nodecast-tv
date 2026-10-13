@@ -63,7 +63,7 @@ router.get('/:id', async (req, res) => {
 // Create source
 router.post('/', async (req, res) => {
     try {
-        const { type, name, url, username, password } = req.body;
+        const { type, name, url, username, password, zapBeforeStreaming, zapDelay } = req.body;
 
         if (!type || !name || !url) {
             return res.status(400).json({ error: 'Type, name, and URL are required' });
@@ -73,7 +73,7 @@ router.post('/', async (req, res) => {
             return res.status(400).json({ error: 'Invalid source type' });
         }
 
-        const source = await sources.create({ type, name, url, username, password });
+        const source = await sources.create({ type, name, url, username, password, zapBeforeStreaming: zapBeforeStreaming === true, zapDelay: parseInt(zapDelay) || 1500 });
         // Trigger Sync
         syncService.syncSource(source.id).catch(console.error);
         res.status(201).json(source);
@@ -91,7 +91,7 @@ router.put('/:id', async (req, res) => {
             return res.status(404).json({ error: 'Source not found' });
         }
 
-        const { name, url, username, password } = req.body;
+        const { name, url, username, password, zapBeforeStreaming, zapDelay } = req.body;
         // Omitted fields must be merged against the latest record inside the
         // database transaction, not the snapshot read before another edit.
         const updates = {};
@@ -99,6 +99,8 @@ router.put('/:id', async (req, res) => {
         if (url) updates.url = url;
         if (username !== undefined) updates.username = username;
         if (password !== undefined) updates.password = password;
+        if (zapBeforeStreaming !== undefined) updates.zapBeforeStreaming = zapBeforeStreaming === true;
+        if (zapDelay !== undefined) updates.zapDelay = parseInt(zapDelay) || 1500;
         const updated = await sources.update(req.params.id, updates);
         if (!updated) return res.status(404).json({ error: 'Source not found' });
         // Trigger Sync (if critical fields changed? safely just trigger it)

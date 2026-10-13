@@ -467,6 +467,7 @@ class WatchPage {
                     this.updateTranscodeStatus(statusMode, statusText);
                     if (this.playbackGeneration !== playbackGeneration) return;
                     const playlistUrl = await this.startTranscodeSession(url, {
+                        program: this.content?.program || this.content?.data?.program || null,
                         videoMode,
                         seekOffset: this.resumeTime, // Ensure seekOffset is passed
                         videoCodec: info.video,
@@ -508,6 +509,7 @@ class WatchPage {
             this.updateTranscodeStatus(statusMode, statusText);
             if (this.playbackGeneration !== playbackGeneration) return;
             const playlistUrl = await this.startTranscodeSession(url, {
+                program: this.content?.program || this.content?.data?.program || null,
                 videoMode: 'encode',
                 seekOffset: this.resumeTime
             });
@@ -533,6 +535,7 @@ class WatchPage {
 
             if (this.playbackGeneration !== playbackGeneration) return;
             const playlistUrl = await this.startTranscodeSession(url, {
+                program: this.currentChannel?.program || null,
                 videoMode: 'copy',
                 videoCodec,
                 seekOffset: this.resumeTime
