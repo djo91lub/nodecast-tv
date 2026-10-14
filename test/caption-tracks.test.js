@@ -104,6 +104,11 @@ test('both subtitle menus select real HLS cues, discard stale tracks and preserv
                 });
                 assert.equal(await page.locator('#list button.active').count(), 1);
             }
+            await page.evaluate(() => window.player.audioRecovery.requestRecovery('caption recovery fixture'));
+            await page.waitForFunction(() => window.player.audioRecovery.lastRecovery > 0 && !window.player.audioRecovery.onAttached);
+            await page.waitForFunction(() => Array.from(window.player.video.textTracks).some(track =>
+                track.mode === 'showing' && Array.from(track.activeCues || []).some(cue => cue.text === 'Cue from /sub2.vtt')));
+            assert.equal(await page.evaluate(() => window.player.video.paused), true);
             await page.locator('#list button').first().click();
             assert.equal(await page.evaluate(() => window.player.hls.subtitleTrack), -1);
             assert.equal(await page.evaluate(() => Array.from(window.player.video.textTracks).every(track => track.mode === 'disabled')), true);
@@ -161,6 +166,11 @@ test('both subtitle menus select real HLS cues, discard stale tracks and preserv
                 const track = Array.from(window.player.video.textTracks).find(track => track.label === 'English CC');
                 return track.mode === 'showing' && track.cues?.length === 1 && track.cues[0].text === 'CEA caption';
             });
+
+            await page.evaluate(() => window.player.audioRecovery.requestRecovery('CEA recovery fixture'));
+            await page.waitForFunction(() => window.player.audioRecovery.lastRecovery > 0 && !window.player.audioRecovery.onAttached);
+            await page.waitForFunction(() => Array.from(window.player.video.textTracks).some(track =>
+                track.label === 'English CC' && track.mode === 'showing' && track.cues?.length === 1 && track.cues[0].text === 'CEA caption'));
 
             await page.evaluate(() => {
                 const player = window.player;
