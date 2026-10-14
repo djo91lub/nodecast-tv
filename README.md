@@ -133,6 +133,10 @@ OIDC_CLIENT_SECRET=your_client_secret
 OIDC_CALLBACK_URL=http://localhost:3000/api/auth/oidc/callback # Adjust for your domain
 ```
 
+The app loads the provider's `/.well-known/openid-configuration` document at startup, using its published authorization, token and optional userinfo endpoints. Copy the provider's issuer URL exactly, including its trailing slash if present; the returned issuer must match. See the [OpenID Connect discovery specification](https://openid.net/specs/openid-connect-discovery-1_0.html#ProviderConfig).
+
+`OIDC_AUTH_URL`, `OIDC_TOKEN_URL` and `OIDC_USERINFO_URL` can override individual endpoints. Supplying all three skips discovery. HTTPS issuers require HTTPS endpoints; HTTP is retained for local development configurations. Discovery has a five-second timeout and a 128 KiB response limit. If it fails, SSO returns an unavailable message and local login remains usable; correct the provider configuration and restart the app.
+
 **Note:** New users signing in via SSO are automatically assigned the **Viewer** role. You must manually promote them to Admin if desired.
 
 ### Usage

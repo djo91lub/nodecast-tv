@@ -37,7 +37,7 @@ test('Chromium plays program/ad/program audio with decoder resets at played boun
         manifest.push('#EXT-X-ENDLIST');
         const root = path.join(__dirname, '../public');
         const scripts = ['/js/components/CaptionTracks.js', '/js/components/HlsAudioRecovery.js',
-            '/js/components/VideoPlayer.js', '/js/pages/WatchPage.js'];
+            '/js/components/PlayerFullscreen.js', '/js/components/VideoPlayer.js', '/js/pages/WatchPage.js'];
         const server = http.createServer((req, res) => {
             const url = new URL(req.url, 'http://fixture.test');
             const send = (type, data) => { res.writeHead(200, { 'Content-Type': type }); res.end(data); };

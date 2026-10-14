@@ -181,7 +181,8 @@ process.on('SIGTERM', async () => {
 app.get('/api/health', require('./services/health'));
 app.get('/api/version', (req, res) => res.json({ version: require('../package.json').version }));
 app.use('/api', auth.requireSameOrigin);
-app.use('/api/auth', require('./routes/auth'));
+const authRoutes = require('./routes/auth');
+app.use('/api/auth', authRoutes);
 app.use('/api', auth.requireAuth);
 app.use('/api', (req, res, next) => {
     try {
@@ -224,6 +225,8 @@ app.use((err, req, res, next) => {
 const server = app.listen(PORT, async () => {
     console.log(`NodeCast TV server running on http://localhost:${server.address().port}`);
 
+    // Finish SSO discovery before announcing readiness. Local login remains available on failure.
+    await authRoutes.oidcReady;
     // Load plugins
     await loadPlugins().catch(err => {
         console.error('Plugin initialization failed:', err);
