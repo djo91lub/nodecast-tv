@@ -3,10 +3,16 @@ const test = require('node:test'), assert = require('node:assert/strict');
 const fs = require('node:fs'), os = require('node:os'), path = require('node:path'), http = require('node:http'), vm = require('node:vm');
 const { spawnSync } = require('node:child_process'), { createRequire } = require('node:module');
 const express = require('express');
+const processDiagnostics = [];
 function route(file) {
     const filename = path.join(__dirname, '../server/routes', file), realRequire = createRequire(filename), module = { exports: {} };
     vm.runInNewContext(fs.readFileSync(filename, 'utf8'), { module, URL, setTimeout, clearTimeout, console: { log() {}, error() {} },
-        require: id => id === '../db' ? { settings: { get: async () => ({}) }, getUserAgent: () => 'Fixture' } : realRequire(id) }, { filename });
+        require: id => id === 'child_process' ? { spawn: (...args) => {
+            const child = realRequire(id).spawn(...args); let stderr = '';
+            child.stderr.on('data', data => { stderr += data; });
+            child.on('close', code => { if (code && stderr) processDiagnostics.push(stderr); });
+            return child;
+        } } : id === '../db' ? { settings: { get: async () => ({}) }, getUserAgent: () => 'Fixture' } : realRequire(id) }, { filename });
     return module.exports;
 }
 
@@ -46,6 +52,8 @@ test('Watch VOD probes expose real embedded subtitles for HLS and remux, align s
         const browser = await chromium.launch({ headless: true, executablePath: process.env.NODECAST_BROWSER_EXECUTABLE || undefined });
         t.after(() => browser.close());
         const base = `http://127.0.0.1:${server.address().port}`, page = await browser.newPage(), errors = [];
+        const browserMessages = [];
+        page.on('console', message => browserMessages.push(message.text()));
         page.on('pageerror', error => errors.push(error.message));
         if (process.env.NODECAST_BROWSER_DEBUG) page.on('console', message => console.log('VOD browser:', message.text()));
         await page.goto(base);
@@ -89,7 +97,12 @@ test('Watch VOD probes expose real embedded subtitles for HLS and remux, align s
                 if (settings.autoTranscode && !settings.direct) window.watch.playbackProbe.read = async (...args) => ({ ...await original(...args), needsTranscode: false, needsRemux: true });
                 await window.watch.loadVideo(base + (settings.direct ? '/direct.mp4' : '/movie.ts')); window.watch.playbackProbe.read = original;
             }, { base, settings });
-            await page.waitForFunction(() => document.querySelectorAll('#list button').length === 3 && window.watch.video.readyState >= 2);
+            await page.waitForFunction(() => document.querySelectorAll('#list button').length === 3 && window.watch.video.readyState >= 2, null, { timeout: 10000 }).catch(async error => {
+                console.error('Playback mode failure:', settings, await page.evaluate(() => ({ ready: window.watch.video.readyState, src: window.watch.video.src,
+                    mediaError: window.watch.video.error?.message, probe: window.watch.getCaptionTracks().probe,
+                    list: document.querySelector('#list').textContent, hls: !!window.watch.hls })), browserMessages, processDiagnostics, requests);
+                throw error;
+            });
             assert.equal(await page.locator('video > track').count(), 2);
             await page.locator('#list button').nth(2).click();
             await page.waitForFunction(() => Array.from(window.watch.video.textTracks).some(track => track.mode === 'showing' && Array.from(track.cues || []).some(cue => cue.text === 'French early' && cue.startTime > 0.9 && cue.startTime < 1.1)), null, { timeout: 10000 }).catch(async error => { console.error('Caption mode:', settings, await page.evaluate(() => ({ offset: window.watch.getCaptionTracks().timeOffset, probe: window.watch.getCaptionTracks().probe, tracks: Array.from(window.watch.video.textTracks, track => ({ label: track.label, mode: track.mode, cues: Array.from(track.cues || [], cue => ({ text: cue.text, start: cue.startTime, end: cue.endTime })) })) }))); throw error; });
