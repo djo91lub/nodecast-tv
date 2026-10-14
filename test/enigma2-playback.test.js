@@ -60,25 +60,67 @@ for (const name of ['VideoPlayer', 'WatchPage']) {
     }
 }
 
-test('Stop and leaving Live TV cancel the actual zap delay without starting playback', async () => {
-    for (const navigate of [false, true]) {
-        let requested;
-        const request = new Promise(resolve => { requested = resolve; });
-        const f = playerFixture('VideoPlayer', { forceVideoTranscode: true }, async (url, options) => {
-            requested(options.signal);
-            return { ok: true, json: async () => ({ success: true }) };
-        });
-        const playing = f.player.play({ streamId: 'service', sourceId: 1, zapBeforeStreaming: true, zapDelay: 10000 }, 'http://receiver/multi.ts');
-        const signal = await request;
-        if (navigate) {
-            vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../public/js/pages/LivePage.js'), 'utf8'), f.context);
-            new f.context.window.LivePage({ player: f.player }).hide();
-        } else f.player.stop();
-        await playing;
-        assert.equal(signal.aborted, true);
-        assert.equal(f.sessions.length, 0);
-        assert.equal(f.player.video.src, '');
+test('Stop cancels the actual zap delay without starting playback', async () => {
+    let requested;
+    const request = new Promise(resolve => { requested = resolve; });
+    const f = playerFixture('VideoPlayer', { forceVideoTranscode: true }, async (url, options) => {
+        requested(options.signal);
+        return { ok: true, json: async () => ({ success: true }) };
+    });
+    const playing = f.player.play({ streamId: 'service', sourceId: 1, zapBeforeStreaming: true, zapDelay: 10000 }, 'http://receiver/multi.ts');
+    const signal = await request;
+    f.player.stop();
+    await playing;
+    assert.equal(signal.aborted, true);
+    assert.equal(f.sessions.length, 0);
+    assert.equal(f.player.video.src, '');
+});
+
+function navigationFixture(f) {
+    Object.assign(f.context.document, { addEventListener() {}, querySelectorAll: () => [] });
+    f.context.history = { pushState() {}, replaceState() {} };
+    vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../public/js/app.js'), 'utf8') + ';window.TestApp = App;', f.context);
+    vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../public/js/pages/LivePage.js'), 'utf8'), f.context);
+    const app = Object.create(f.context.window.TestApp.prototype);
+    app.player = f.player;
+    app.channelList = { channels: [{}] };
+    app.pages = { live: new f.context.window.LivePage(app) };
+    app.currentPage = 'live';
+    return app;
+}
+
+test('browsing the guide and catalogs preserves Live TV playback and its session', async () => {
+    const f = playerFixture('VideoPlayer', { forceVideoTranscode: true });
+    await f.start();
+    let released = 0;
+    f.player.playbackSessions = { stop() { released++; } };
+    f.player.currentSessionId = 'live-session';
+    const source = f.player.video.src, generation = f.player.playbackGeneration;
+    const app = navigationFixture(f);
+    for (const page of ['guide', 'movies', 'series']) {
+        app.navigateTo('live');
+        app.navigateTo(page);
+        assert.equal(f.player.video.src, source);
+        assert.equal(f.player.currentSessionId, 'live-session');
+        assert.equal(f.player.playbackGeneration, generation);
     }
+    assert.equal(released, 0);
+});
+
+test('browsing during a zap delay lets the selected live channel start normally', async () => {
+    let requested;
+    const ready = new Promise(resolve => { requested = resolve; });
+    const f = playerFixture('VideoPlayer', { forceVideoTranscode: true }, async (url, options) => {
+        requested(options.signal);
+        return { ok: true, json: async () => ({ success: true }) };
+    });
+    const playing = f.player.play({ streamId: 'service', sourceId: 1, zapBeforeStreaming: true, zapDelay: 0 }, 'http://receiver/multi.ts');
+    const signal = await ready;
+    navigationFixture(f).navigateTo('guide');
+    assert.equal(signal.aborted, false);
+    await playing;
+    assert.equal(f.sessions.length, 1);
+    assert.equal(f.player.video.src, '/api/session/stream.m3u8');
 });
 
 test('Stop cancels an in-flight zap request and releases the old session before retuning', async () => {

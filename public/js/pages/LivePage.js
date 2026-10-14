@@ -103,8 +103,6 @@ class LivePage {
 
     hide() {
         document.removeEventListener('keydown', this.handleKeydown);
-        // Stop the stream when leaving Live TV so the transcode session is released
-        this.app.player?.stop();
     }
 }
 
