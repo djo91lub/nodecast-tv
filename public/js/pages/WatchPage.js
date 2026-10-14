@@ -421,7 +421,6 @@ class WatchPage {
         this.setSourceDuration(VodDuration.firstValid(VodDuration.fromContent(this.content || {}), knownDuration));
         const playbackGeneration = this.playbackGeneration;
         const program = this.content?.program ?? this.content?.data?.program ?? null;
-        const programQuery = program == null ? '' : '&program=' + encodeURIComponent(program);
         let probeInfo = null;
 
         // Show loading spinner
@@ -446,8 +445,7 @@ class WatchPage {
             console.log('[WatchPage] Auto Transcode enabled. Probing stream...');
             try {
                 const ua = settings.userAgentPreset === 'custom' ? settings.userAgentCustom : settings.userAgentPreset;
-                const probeRes = await fetch(`/api/probe?url=${encodeURIComponent(url)}&ua=${encodeURIComponent(ua || '')}${programQuery}`);
-                const info = await probeRes.json();
+                const info = await (this.playbackProbe ||= new PlaybackProbe(fetch)).read(url, { program, userAgent: ua || '' });
                 if (this.playbackGeneration !== playbackGeneration) return;
                 probeInfo = info;
                 this.setSourceDuration(info.duration);
@@ -497,6 +495,7 @@ class WatchPage {
                 // Compatible - fall through to normal playback
                 console.log('[WatchPage] Auto: Using normal playback (compatible)');
             } catch (err) {
+                if (err.name === 'AbortError') return;
                 console.warn('[WatchPage] Probe failed, using normal playback:', err.message);
                 // Continue with normal playback on probe failure
             }
@@ -529,11 +528,10 @@ class WatchPage {
             let videoCodec = 'unknown';
             try {
                 const ua = settings.userAgentPreset === 'custom' ? settings.userAgentCustom : settings.userAgentPreset;
-                const probeRes = await fetch(`/api/probe?url=${encodeURIComponent(url)}&ua=${encodeURIComponent(ua || '')}${programQuery}`);
-                const info = await probeRes.json();
+                const info = await (this.playbackProbe ||= new PlaybackProbe(fetch)).read(url, { program, userAgent: ua || '' });
                 if (this.playbackGeneration !== playbackGeneration) return;
                 videoCodec = info.video;
-            } catch (e) { console.warn('Probe failed for force audio, assuming h264'); }
+            } catch (e) { if (e.name === 'AbortError') return; console.warn('Probe failed for force audio, assuming h264'); }
 
             if (this.playbackGeneration !== playbackGeneration) return;
             const playlistUrl = await this.startTranscodeSession(url, {
@@ -555,9 +553,9 @@ class WatchPage {
             if (!probeInfo) {
                 try {
                     const ua = settings.userAgentPreset === 'custom' ? settings.userAgentCustom : settings.userAgentPreset;
-                    const response = await fetch(`/api/probe?url=${encodeURIComponent(url)}&ua=${encodeURIComponent(ua || '')}${programQuery}`);
-                    probeInfo = await response.json();
+                    probeInfo = await (this.playbackProbe ||= new PlaybackProbe(fetch)).read(url, { program, userAgent: ua || '' });
                 } catch (error) {
+                    if (error.name === 'AbortError') return;
                     console.warn('[WatchPage] Remux probe failed:', error.message);
                 }
             }
@@ -658,6 +656,7 @@ class WatchPage {
     }
 
     stop() {
+        this.playbackProbe?.cancel();
         this.playbackGeneration = (this.playbackGeneration || 0) + 1;
         this.audioRecovery?.dispose();
         this.audioRecovery = null;

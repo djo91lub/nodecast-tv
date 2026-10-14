@@ -17,7 +17,7 @@ function playerFixture(name, settings, fetcher) {
     const document = { getElementById() { return null; }, removeEventListener() {} };
     const probe = { video: 'h264', audio: 'aac', audioChannels: 2, audioCodecs: ['aac'], needsRemux: true };
     const context = { window, document, AbortController, setTimeout, clearTimeout, CustomEvent: class {},
-        CaptionTracks: require('../public/js/components/CaptionTracks'),
+        PlaybackProbe: require('../public/js/components/PlaybackProbe'), CaptionTracks: require('../public/js/components/CaptionTracks'),
         VodDuration: require('../public/js/components/VodDuration'), console: { log() {}, warn() {}, error() {} },
         API: { settings: { get: async () => settings } },
         fetch: async (url, options) => {
@@ -238,4 +238,41 @@ test('real FFmpeg probes, remuxes and transcodes only the requested MPEG-TS prog
     const output = spawnSync(app.locals.ffprobePath, ['-v', 'error', '-show_streams', '-of', 'json', session.playlistPath], { encoding: 'utf8' });
     assert.equal(output.status, 0, output.stderr);
     assert.equal(JSON.parse(output.stdout).streams.find(stream => stream.codec_type === 'video').width, 96);
+});
+
+for (const name of ['VideoPlayer', 'WatchPage']) {
+    for (const mode of ['autoTranscode', 'forceTranscode', 'forceRemux']) {
+        test(`${name} ${mode} cancels probes on Stop and replacement playback`, async () => {
+            for (const replace of [false, true]) {
+                const probes = [];
+                const f = playerFixture(name, { [mode]: true }, (url, options) => {
+                    probes.push({ url, options });
+                    if (probes.length > 1) return Promise.resolve({ ok: true, json: async () => ({ audio: 'aac', audioCodecs: ['aac'], needsRemux: true }) });
+                    return new Promise((resolve, reject) => options.signal.addEventListener('abort', () => reject(Object.assign(Error('Stopped'), { name: 'AbortError' })), { once: true }));
+                });
+                const first = f.start();
+                while (probes.length === 0) await new Promise(resolve => setImmediate(resolve));
+                if (replace) await f.start(); else f.player.stop();
+                await first;
+                assert.equal(probes[0].options.signal.aborted, true);
+                if (replace) {
+                    assert.equal(probes.length, 2);
+                    assert.equal(new URL(probes[1].url, 'http://app').searchParams.get('requestSequence'), '2');
+                    assert.equal(mode === 'forceTranscode' ? f.sessions.length : Number(f.player.video.src !== ''), 1);
+                } else { assert.equal(f.sessions.length, 0); assert.equal(f.player.video.src, ''); }
+            }
+        });
+    }
+}
+
+test('browsing away from Live TV preserves its in-flight metadata probe and starts playback', async () => {
+    let signal, finish;
+    const f = playerFixture('VideoPlayer', { forceRemux: true }, (url, options) => {
+        signal = options.signal;
+        return new Promise(resolve => { finish = () => resolve({ ok: true, json: async () => ({ audioCodecs: ['aac'] }) }); });
+    });
+    const playing = f.start(); while (!finish) await new Promise(resolve => setImmediate(resolve));
+    const app = navigationFixture(f); app.navigateTo('guide');
+    assert.equal(signal.aborted, false); finish(); await playing;
+    assert.equal(new URL(f.player.video.src, 'http://app').pathname, '/api/remux');
 });
