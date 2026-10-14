@@ -228,6 +228,10 @@ All transcoding and stream processing settings are found in **Settings → Trans
 | No audio at all | Dolby/AC3/EAC3 audio | Enable **"Force Audio Transcode"** (overrides Auto detection) |
 | Audio out of sync | Stream encoding issue | Try changing stream format to TS in Settings |
 
+### Low-Pitched Audio During Commercials
+
+On Chromium browsers (including Chrome, Brave, and Edge), the player refreshes the media decoder when playback crosses an HLS discontinuity, which is commonly used at ad transitions. This keeps the current playback position and subtitle selection, but may briefly rebuffer. Streams without discontinuity markers cannot use this workaround. If distortion persists, try Firefox or enable **Force Audio Transcode** in Settings.
+
 ### Buffering Issues
 
 | Symptom | Likely Cause | Solution |
