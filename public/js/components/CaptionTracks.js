@@ -9,6 +9,7 @@ class CaptionTracks {
         this.hlsTracks = new Map();
         this.retired = new Set();
         this.generation = 0;
+        this.selectionRevision = 0;
         this.video.textTracks?.addEventListener('change', onChange);
         this.video.textTracks?.addEventListener('addtrack', onChange);
         this.video.textTracks?.addEventListener('removetrack', onChange);
@@ -53,6 +54,32 @@ class CaptionTracks {
 
     setProbe(info, url) {
         this.probe = { subtitles: info?.subtitles || [], url };
+    }
+
+    prepareMediaRecovery() {
+        const tracks = Array.from(this.hlsTracks, ([key, entry]) => ({ key, entry,
+            cues: Array.from(entry.element.track.cues || []), mode: entry.element.track.mode }));
+        const hasRemoteTracks = this.remoteTracks.length > 0;
+        if (!hasRemoteTracks && !tracks.length) return;
+        const selected = this.remoteTracks.findIndex(element => element.track.mode === 'showing');
+        const generation = this.generation, revision = this.selectionRevision;
+        return () => {
+            if (this.generation !== generation) return;
+            // HLS detachment clears all native cues, including our owned caption tracks.
+            for (const { key, entry, cues, mode } of tracks) {
+                if (this.hlsTracks.get(key) !== entry) continue;
+                this.appendHlsCues(entry, cues);
+                if (this.selectionRevision === revision) entry.element.track.mode = mode;
+            }
+            if (hasRemoteTracks) {
+                const remoteSelection = this.selectionRevision === revision ? selected :
+                    this.remoteTracks.findIndex(element => element.track.mode === 'showing');
+                this.removeRemoteTracks();
+                this.addRemoteTracks();
+                if (remoteSelection >= 0 && this.remoteTracks[remoteSelection]) this.remoteTracks[remoteSelection].track.mode = 'showing';
+            }
+            this.onChange();
+        };
     }
 
     useNative({ allowProbe = true } = {}) {
@@ -203,6 +230,7 @@ class CaptionTracks {
                     active: hls.subtitleDisplay !== false && hls.subtitleTrack === index,
                     select: () => {
                         if (this.hls !== hls || hls.subtitleTracks[index] !== track) return;
+                        this.selectionRevision++;
                         this.disableNativeTracks();
                         hls.subtitleDisplay = true;
                         hls.subtitleTrack = index;
@@ -238,6 +266,7 @@ class CaptionTracks {
     }
 
     off() {
+        this.selectionRevision++;
         if (this.hls) {
             this.hls.subtitleTrack = -1;
             this.hls.subtitleDisplay = false;
