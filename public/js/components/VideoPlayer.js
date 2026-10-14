@@ -643,7 +643,6 @@ class VideoPlayer {
             }
             if (this.playbackGeneration !== playbackGeneration) return;
             this.currentChannel = channel;
-            const programQuery = channel?.program == null ? '' : '&program=' + encodeURIComponent(channel.program);
             let probeInfo = null;
             this.updateTranscodeStatus('hidden');
 
@@ -661,8 +660,7 @@ class VideoPlayer {
             if (this.settings.autoTranscode) {
                 console.log('[Player] Auto Transcode enabled. Probing stream...');
                 try {
-                    const probeRes = await fetch(`/api/probe?url=${encodeURIComponent(streamUrl)}${programQuery}`);
-                    const info = await probeRes.json();
+                    const info = await (this.playbackProbe ||= new PlaybackProbe(fetch)).read(streamUrl, { program: channel?.program });
                     if (this.playbackGeneration !== playbackGeneration) return;
                     probeInfo = info;
                     console.log(`[Player] Probe result: video=${info.video}, audio=${info.audio}, ${info.width}x${info.height}, compatible=${info.compatible}`);
@@ -724,6 +722,7 @@ class VideoPlayer {
                     // Compatible - fall through to normal HLS.js path
                     console.log('[Player] Auto: Using HLS.js (compatible)');
                 } catch (err) {
+                    if (err.name === 'AbortError') return;
                     console.warn('[Player] Probe failed, using normal playback:', err.message);
                     // Continue with normal playback on probe failure
                 }
@@ -753,11 +752,10 @@ class VideoPlayer {
                 // Probe to get video codec for HEVC tag handling
                 let videoCodec = 'unknown';
                 try {
-                    const probeRes = await fetch(`/api/probe?url=${encodeURIComponent(streamUrl)}${programQuery}`);
-                    const info = await probeRes.json();
+                    const info = await (this.playbackProbe ||= new PlaybackProbe(fetch)).read(streamUrl, { program: channel?.program });
                     if (this.playbackGeneration !== playbackGeneration) return;
                 videoCodec = info.video;
-                } catch (e) { console.warn('Probe failed for force audio, assuming h264'); }
+                } catch (e) { if (e.name === 'AbortError') return; console.warn('Probe failed for force audio, assuming h264'); }
 
                 if (this.playbackGeneration !== playbackGeneration) return;
                 const playlistUrl = await this.startTranscodeSession(streamUrl, { program: channel?.program || null, videoMode: 'copy', videoCodec });
@@ -805,9 +803,9 @@ class VideoPlayer {
                 this.updateTranscodeStatus('remuxing', this.settings.forceRemux ? 'Remux (Force)' : 'Remux (Program)');
                 if (!probeInfo) {
                     try {
-                        const response = await fetch(`/api/probe?url=${encodeURIComponent(streamUrl)}${programQuery}`);
-                        probeInfo = await response.json();
+                        probeInfo = await (this.playbackProbe ||= new PlaybackProbe(fetch)).read(streamUrl, { program: channel?.program });
                     } catch (error) {
+                        if (error.name === 'AbortError') return;
                         console.warn('[Player] Remux probe failed:', error.message);
                     }
                 }
@@ -1115,6 +1113,7 @@ class VideoPlayer {
      * Stop playback
      */
     stop() {
+        this.playbackProbe?.cancel();
         this.zapController?.abort();
         this.zapController = null;
         this.playbackGeneration = (this.playbackGeneration || 0) + 1;

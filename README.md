@@ -120,6 +120,8 @@ Ensure you have the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacente
 ```
 
 **Verify:**
+On Linux, QSV detection checks an accessible Intel render device and verifies a short H.264 encode with the configured FFmpeg. If that check fails, QSV is not automatically recommended. Ensure the container has read/write permission on the mapped device. The image includes `pciutils` for systems where GPU vendor information is hidden in sysfs.
+
 After restarting the container, go to **Settings -> Transcoding**. The **Hardware Detection** status should list your GPU (e.g., "NVIDIA GPU Detected" or "VAAPI Available").
 
 ### SSO / OIDC Setup
