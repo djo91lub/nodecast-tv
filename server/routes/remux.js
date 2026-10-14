@@ -128,8 +128,7 @@ router.get('/', async (req, res) => {
         '-sn', '-dn',
         // Copy streams without re-encoding
         '-c', 'copy',
-        // Ensure extradata is correctly extracted/converted (fixes Annex B -> AVCC issues in Firefox)
-        '-bsf:v', 'dump_extra',
+        // The MP4 muxer handles AVC framing; prepending container extradata corrupts AVCC packets.
         // Convert ADTS only on probed AAC tracks; leave MP3/AC3/EAC3 untouched.
         ...audioFilterArgs(audioCodecs),
         // Handle timestamp discontinuities at output
