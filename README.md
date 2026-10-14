@@ -352,6 +352,8 @@ nodecast-tv/
 
 ## Authentication and reverse proxies
 
+Usernames are matched without regard to case, and their display spelling is preserved. If an older database has accounts differing only by case, those accounts still require their exact spelling until an administrator renames them; ambiguous mixed-case logins are rejected. New accounts and renames cannot create case-only duplicates.
+
 Browser playback and API requests use an HttpOnly authentication cookie. API clients can also send the token returned by `/api/auth/login` as `Authorization: Bearer <token>`. Existing accounts and settings are retained, but clients must sign in again after upgrading from the older token format. Logout revokes that login; changing a password invalidates all of that account's existing tokens.
 
 Random authentication secrets are created once in `data/security.json` and survive restarts. Keep that file with the persistent data volume. `JWT_SECRET` and `SESSION_SECRET` can override the generated secrets for managed deployments.

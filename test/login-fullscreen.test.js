@@ -101,6 +101,9 @@ test('login prevents native GET credential leaks after missing or failed scripts
             page.on('pageerror', () => {});
             await page.route('**/*', route => route.request().url().startsWith(base) ? route.continue() : route.abort());
             await page.goto(base + '/login.html');
+            assert.equal(await page.locator('#username').getAttribute('autocapitalize'), 'none');
+            assert.equal(await page.locator('#username').getAttribute('autocorrect'), 'off');
+            assert.equal(await page.locator('#username').getAttribute('spellcheck'), 'false');
             await page.fill('#username', 'fixture-user'); await page.fill('#password', 'fixture-password');
             assert.equal(await page.locator('#submit-btn').isDisabled(), true);
             await page.locator('#password').press('Enter');
@@ -128,6 +131,9 @@ test('login prevents native GET credential leaks after missing or failed scripts
             await page.goto(base + '/login.html');
             await page.waitForFunction(() => !document.querySelector('#submit-btn').disabled);
             assert.equal(await page.locator('#submit-btn').textContent(), endpoint.endsWith('setup') ? 'Create Account' : 'Sign In');
+            assert.equal(await page.locator('#username').getAttribute('autocapitalize'), 'none');
+            assert.equal(await page.locator('#username').getAttribute('autocorrect'), 'off');
+            assert.equal(await page.locator('#username').getAttribute('spellcheck'), 'false');
             await page.fill('#username', 'fixture-user'); await page.fill('#password', 'fixture-password');
             const sent = page.waitForRequest(request => request.url() === base + endpoint && request.method() === 'POST');
             await page.click('#submit-btn');

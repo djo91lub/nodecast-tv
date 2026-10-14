@@ -172,3 +172,48 @@ test('real authenticated media requests deliver remux and owned HLS output witho
     assert.equal((await fixture.request('/api/transcode/lease', { ...post({ playbackLeaseId: lease }), method: 'DELETE', headers })).status, 200);
     assert.equal((await fetch(`${fixture.base}${session.body.playlistUrl}`, { headers })).status, 404);
 });
+
+test('local login matches case variants and preserves account IDs, roles, passwords and display spelling', async t => {
+    const { request } = await serverFixture(t);
+    const admin = await request('/api/auth/setup', post({ username: 'Owner', password: 'owner-password' }));
+    assert.equal(admin.status, 201);
+    const headers = { Cookie: admin.cookie.split(';')[0] };
+    const viewer = await request('/api/auth/users', { ...post({ username: 'Viewer', password: 'viewer-password', role: 'viewer' }), headers });
+    assert.equal(viewer.status, 201);
+    for (const username of ['viewer', 'VIEWER', 'vIeWeR']) {
+        const login = await request('/api/auth/login', post({ username, password: 'viewer-password' }));
+        assert.equal(login.status, 200);
+        assert.deepEqual(login.body.user, { id: viewer.body.id, username: 'Viewer', role: 'viewer' });
+    }
+    assert.equal((await request('/api/auth/login', post({ username: 'viewer', password: 'VIEWER-PASSWORD' }))).status, 401);
+    assert.equal((await request('/api/auth/login', post({ username: 'owner', password: 'viewer-password' }))).status, 401);
+    assert.equal((await request('/api/auth/users', { ...post({ username: 'VIEWER', password: 'another-password', role: 'admin' }), headers })).status, 500);
+    assert.equal((await request(`/api/auth/users/${viewer.body.id}`, { method: 'PUT', body: JSON.stringify({ username: 'OWNER' }), headers })).status, 500);
+    assert.equal((await request(`/api/auth/users/${viewer.body.id}`, { method: 'PUT', body: JSON.stringify({ username: 'VIEWER' }), headers })).status, 200);
+    const renamed = await request('/api/auth/login', post({ username: 'viewer', password: 'viewer-password' }));
+    assert.equal(renamed.body.user.id, viewer.body.id); assert.equal(renamed.body.user.username, 'VIEWER');
+});
+
+test('legacy case-only accounts retain exact logins and reject ambiguous case variants until renamed', async t => {
+    const fixture = await serverFixture(t);
+    await fixture.request('/api/auth/setup', post({ username: 'Admin', password: 'admin-password' }));
+    await fixture.stop();
+    const filename = path.join(fixture.dir, 'db.json'), data = JSON.parse(fs.readFileSync(filename, 'utf8'));
+    const bcrypt = require('bcryptjs');
+    data.users.push({ id: data.nextId++, username: 'Twin', role: 'admin', passwordHash: await bcrypt.hash('first-password', 4) },
+        { id: data.nextId++, username: 'twin', role: 'viewer', passwordHash: await bcrypt.hash('second-password', 4) });
+    fs.writeFileSync(filename, JSON.stringify(data)); await fixture.start();
+    for (const [username, password, role] of [['Twin', 'first-password', 'admin'], ['twin', 'second-password', 'viewer']]) {
+        const login = await fixture.request('/api/auth/login', post({ username, password }));
+        assert.equal(login.status, 200); assert.equal(login.body.user.role, role);
+    }
+    assert.equal((await fixture.request('/api/auth/login', post({ username: 'TWIN', password: 'first-password' }))).status, 401);
+    assert.equal((await fixture.request('/api/auth/login', post({ username: 'Twin', password: 'second-password' }))).status, 401);
+    const owner = await fixture.request('/api/auth/login', post({ username: 'admin', password: 'admin-password' }));
+    const headers = { Cookie: owner.cookie.split(';')[0] }, lower = data.users.find(user => user.username === 'twin');
+    assert.equal((await fixture.request(`/api/auth/users/${lower.id}`, { method: 'PUT', body: JSON.stringify({ username: 'twin', password: 'changed-password' }), headers })).status, 200);
+    assert.equal((await fixture.request(`/api/auth/users/${lower.id}`, { method: 'PUT', body: JSON.stringify({ username: 'TWIN' }), headers })).status, 500);
+    assert.equal((await fixture.request(`/api/auth/users/${lower.id}`, { method: 'PUT', body: JSON.stringify({ username: 'Other' }), headers })).status, 200);
+    const resolved = await fixture.request('/api/auth/login', post({ username: 'TWIN', password: 'first-password' }));
+    assert.equal(resolved.status, 200); assert.equal(resolved.body.user.username, 'Twin');
+});

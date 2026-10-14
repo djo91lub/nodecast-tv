@@ -1,7 +1,7 @@
 /** Metadata probes belong to the active playback, and share an ordered lease across replacements. */
 class PlaybackProbe {
     constructor(fetchImpl = fetch) {
-        this.fetch = fetchImpl;
+        this.fetch = (url, options) => fetchImpl(url, options);
         this.sequence = 0;
         this.leaseId = Array.from(globalThis.crypto.getRandomValues(new Uint8Array(16)),
             byte => byte.toString(16).padStart(2, '0')).join('');
