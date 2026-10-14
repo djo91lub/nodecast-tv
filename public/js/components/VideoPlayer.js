@@ -576,145 +576,6 @@ class VideoPlayer {
             }
         });
 
-        // Initialize HLS.js if supported
-        if (Hls.isSupported()) {
-            this.hls = new Hls(this.getHlsConfig());
-            this.lastDiscontinuity = -1; // Track discontinuity changes
-
-            this.hls.on(Hls.Events.ERROR, (event, data) => {
-                console.error('HLS error:', data.type, data.details);
-                if (data.fatal) {
-                    switch (data.type) {
-                        case Hls.ErrorTypes.NETWORK_ERROR:
-                            // Track network retry attempts
-                            this.networkRetryCount = (this.networkRetryCount || 0) + 1;
-                            const now = Date.now();
-                            const timeSinceLastNetworkError = now - (this.lastNetworkErrorTime || 0);
-                            this.lastNetworkErrorTime = now;
-
-                            // Reset retry count if it's been more than 30 seconds since last error
-                            if (timeSinceLastNetworkError > 30000) {
-                                this.networkRetryCount = 1;
-                            }
-
-                            console.log(`Network error (attempt ${this.networkRetryCount}/3):`, data.details);
-
-                            if (this.networkRetryCount <= 3 && !this.isUsingProxy) {
-                                // Retry with increasing delay (1s, 2s, 3s)
-                                const retryDelay = this.networkRetryCount * 1000;
-                                console.log(`[HLS] Retrying in ${retryDelay}ms...`);
-                                setTimeout(() => {
-                                    if (this.hls) {
-                                        this.hls.startLoad();
-                                    }
-                                }, retryDelay);
-                            } else if (!this.isUsingProxy) {
-                                // After 3 retries, try proxy
-                                console.log('[HLS] Max retries reached, switching to proxy...');
-                                this.networkRetryCount = 0;
-                                this.isUsingProxy = true;
-                                const proxiedUrl = this.getProxiedUrl(this.currentUrl);
-                                this.hls.loadSource(proxiedUrl);
-                                this.hls.startLoad();
-                            } else {
-                                // Already using proxy, just retry
-                                console.log('[HLS] Network error on proxy, retrying...');
-                                this.hls.startLoad();
-                            }
-                            break;
-                        case Hls.ErrorTypes.MEDIA_ERROR:
-                            console.log('Media error, attempting recovery...');
-                            this.hls.recoverMediaError();
-                            break;
-                        default:
-                            this.stop();
-                            break;
-                    }
-                } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
-                    // Non-fatal media error - try to recover with cooldown to prevent loops
-                    const now = Date.now();
-                    const timeSinceLastRecovery = now - (this.lastRecoveryAttempt || 0);
-
-                    // Track consecutive media errors for escalated recovery
-                    if (timeSinceLastRecovery < 5000) {
-                        this.mediaErrorCount = (this.mediaErrorCount || 0) + 1;
-                    } else {
-                        this.mediaErrorCount = 1;
-                    }
-
-                    // Only attempt recovery if more than 2 seconds since last attempt
-                    if (timeSinceLastRecovery > 2000) {
-                        console.log(`Non-fatal media error (${this.mediaErrorCount}x):`, data.details, '- attempting recovery');
-                        this.lastRecoveryAttempt = now;
-
-                        // If repeated errors, try swapAudioCodec which can fix audio glitches
-                        if (this.mediaErrorCount >= 3) {
-                            console.log('[HLS] Multiple errors detected, trying swapAudioCodec...');
-                            this.hls.swapAudioCodec();
-                            this.mediaErrorCount = 0;
-                        }
-
-                        this.hls.recoverMediaError();
-
-                        // If fragParsingError, also seek forward slightly to skip corrupted segment
-                        if (data.details === 'fragParsingError' && !this.video.paused && this.video.currentTime > 0) {
-                            console.log('[HLS] Seeking past corrupted segment...');
-                            setTimeout(() => {
-                                if (this.video && !this.video.paused) {
-                                    this.video.currentTime += 1;
-                                }
-                            }, 200);
-                        }
-                    } else {
-                        // Too many errors in quick succession - log but don't spam recovery
-                        console.log('Non-fatal media error (cooldown):', data.details);
-                    }
-                } else if (data.details === 'bufferAppendError') {
-                    // Buffer errors during ad transitions - try recovery
-                    console.log('Buffer append error, recovering...');
-                    this.hls.recoverMediaError();
-                }
-            });
-
-            // Detect audio track switches (can cause audio glitches on some streams)
-            this.hls.on(Hls.Events.AUDIO_TRACK_SWITCHED, (event, data) => {
-                console.log('Audio track switched:', data);
-            });
-
-            // Detect buffer stalls which may indicate codec issues
-            this.hls.on(Hls.Events.BUFFER_STALLED_ERROR, () => {
-                console.log('Buffer stalled, attempting recovery...');
-                this.hls.recoverMediaError();
-            });
-
-            // Detect discontinuity changes (ad transitions) and help decoder reset
-            this.hls.on(Hls.Events.FRAG_CHANGED, (event, data) => {
-                const frag = data.frag;
-                // Debug: log every fragment change
-                console.log(`[HLS] FRAG_CHANGED: sn=${frag?.sn}, cc=${frag?.cc}, level=${frag?.level}`);
-
-                if (frag && frag.sn !== 'initSegment') {
-                    // Check if we crossed a discontinuity boundary using CC (Continuity Counter)
-                    if (frag.cc !== undefined && frag.cc !== this.lastDiscontinuity) {
-                        console.log(`[HLS] Discontinuity detected: CC ${this.lastDiscontinuity} -> ${frag.cc}`);
-                        this.lastDiscontinuity = frag.cc;
-
-                        // Small nudge to help decoder sync (only if playing)
-                        if (!this.video.paused && this.video.currentTime > 0) {
-                            const nudgeAmount = 0.01;
-                            this.video.currentTime += nudgeAmount;
-                        }
-                    }
-                }
-            });
-
-            this.getCaptionTracks().bindHls(this.hls, Hls.Events);
-
-            this.hls.on(Hls.Events.MANIFEST_PARSED, () => {
-                this.video.play().catch(e => console.log('Autoplay prevented:', e));
-            });
-        }
-
         // Keyboard controls
         document.addEventListener('keydown', (e) => this.handleKeyboard(e));
 
@@ -1000,66 +861,7 @@ class VideoPlayer {
             if (looksLikeHls && Hls.isSupported()) {
                 this.updateTranscodeStatus('direct', 'Direct HLS');
 
-                // Use playHls helper logic here (or extract it)
-                // For now, let's just use existing logic but wrapped/modularized if possible?
-                // The HLS init logic is quite complex with error handling
-                // I'll inline the Hls init here as per original but mindful of proxy vs local
-
-                this.hls = new Hls(this.getHlsConfig());
-                this.getCaptionTracks().bindHls(this.hls, Hls.Events);
-                this.hls.loadSource(finalUrl);
-                this.hls.attachMedia(this.video);
-
-                this.hls.on(Hls.Events.MANIFEST_PARSED, () => {
-                    this.video.play().catch(e => {
-                        if (e.name !== 'AbortError') console.log('Autoplay prevented:', e);
-                    });
-                });
-
-                // Re-attach error handler for the new Hls instance
-                this.hls.on(Hls.Events.ERROR, (event, data) => {
-                    if (data.fatal) {
-                        const isCorsLikely = data.type === Hls.ErrorTypes.NETWORK_ERROR ||
-                            (data.type === Hls.ErrorTypes.MEDIA_ERROR && data.details === 'fragParsingError');
-
-                        // Don't proxy if it's already a local API URL
-                        const isLocalApi = this.currentUrl.startsWith('/api/');
-
-                        if (isCorsLikely && !this.isUsingProxy && !isLocalApi) {
-                            console.log('CORS/Network error detected, retrying via proxy...', data.details);
-                            this.isUsingProxy = true;
-                            this.hls.loadSource(this.getProxiedUrl(this.currentUrl));
-                            this.hls.startLoad();
-                        } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
-                            // Fatal media error - try recovery with cooldown
-                            const now = Date.now();
-                            if (now - (this.lastRecoveryAttempt || 0) > 2000) {
-                                console.log('Fatal media error, attempting recovery...');
-                                this.lastRecoveryAttempt = now;
-                                this.hls.recoverMediaError();
-                            }
-                        } else {
-                            console.error('Fatal HLS error:', data);
-                        }
-                    } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
-                        // Non-fatal media error - already handled in init(), skip duplicate handling
-                    }
-                });
-
-                // Detect discontinuity changes (ad transitions) for logging only
-                this.lastDiscontinuity = -1;
-                this.hls.on(Hls.Events.FRAG_CHANGED, (event, data) => {
-                    const frag = data.frag;
-                    if (frag && frag.sn !== 'initSegment') {
-                        // Log discontinuity changes for debugging
-                        if (frag.cc !== undefined && frag.cc !== this.lastDiscontinuity) {
-                            console.log(`[HLS] Discontinuity detected: CC ${this.lastDiscontinuity} -> ${frag.cc}`);
-                            this.lastDiscontinuity = frag.cc;
-                            // Note: maxAudioFramesDrift: 4 handles audio sync naturally
-                            // No manual seeking needed - it can cause more issues than it solves
-                        }
-                    }
-                });
+                this.playHls(finalUrl);
             } else if (this.video.canPlayType('application/vnd.apple.mpegurl') === 'probably' ||
                 this.video.canPlayType('application/vnd.apple.mpegurl') === 'maybe') {
                 // Priority 2: Native HLS support (Safari on iOS/macOS where HLS.js may not work)
@@ -1115,6 +917,10 @@ class VideoPlayer {
 
         this.hls = new Hls(this.getHlsConfig());
         const hls = this.hls, generation = this.playbackGeneration;
+        this.audioRecovery?.dispose();
+        this.audioRecovery = new HlsAudioRecovery(hls, this.video, Hls.Events,
+            () => this.hls === hls && this.playbackGeneration === generation,
+            { beforeRecovery: () => this.getCaptionTracks().prepareMediaRecovery() });
         this.getCaptionTracks().bindHls(hls, Hls.Events);
         this.hls.loadSource(url);
         this.hls.attachMedia(this.video);
@@ -1126,14 +932,25 @@ class VideoPlayer {
             });
         });
 
-        this.hls.on(Hls.Events.ERROR, (event, data) => {
+        hls.on(Hls.Events.ERROR, (event, data) => {
             if (this.hls !== hls || this.playbackGeneration !== generation) return;
-            if (data.fatal) {
-                // Simple error handling for forced HLS/transcode modes
-                console.error('Fatal HLS error in transcode mode:', data);
-                this.hls.destroy();
-                this.stopTranscodeSession();
+            const mediaError = data.type === Hls.ErrorTypes.MEDIA_ERROR;
+            const needsRecovery = mediaError && (data.fatal || ['bufferAppendError', 'bufferAppendingError', 'fragParsingError'].includes(data.details));
+            if (needsRecovery && this.audioRecovery.requestRecovery('media error')) return;
+            if (!data.fatal) return;
+            const networkError = data.type === Hls.ErrorTypes.NETWORK_ERROR;
+            if (networkError && !this.isUsingProxy && !url.startsWith('/api/')) {
+                this.isUsingProxy = true;
+                hls.loadSource(this.getProxiedUrl(url));
+                hls.startLoad();
+                return;
             }
+            console.error('Fatal HLS error:', data.details);
+            this.audioRecovery.dispose();
+            hls.destroy();
+            this.hls = null;
+            this.stopTranscodeSession();
+            this.showError('Playback failed. Try selecting the channel again.');
         });
     }
 
@@ -1313,6 +1130,8 @@ class VideoPlayer {
      */
     stop() {
         this.playbackGeneration = (this.playbackGeneration || 0) + 1;
+        this.audioRecovery?.dispose();
+        this.audioRecovery = null;
         // Stop any running transcode session first
         this.stopTranscodeSession();
 

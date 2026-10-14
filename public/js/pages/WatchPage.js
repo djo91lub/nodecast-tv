@@ -609,6 +609,10 @@ class WatchPage {
         });
 
         const hls = this.hls, generation = this.playbackGeneration;
+        this.audioRecovery?.dispose();
+        this.audioRecovery = new HlsAudioRecovery(hls, this.video, Hls.Events,
+            () => this.hls === hls && this.playbackGeneration === generation,
+            { beforeRecovery: () => this.getCaptionTracks().prepareMediaRecovery() });
         this.getCaptionTracks().bindHls(hls, Hls.Events);
         this.hls.loadSource(url);
         this.hls.attachMedia(this.video);
@@ -622,6 +626,9 @@ class WatchPage {
 
         this.hls.on(Hls.Events.ERROR, (event, data) => {
             if (this.hls !== hls || this.playbackGeneration !== generation) return;
+            const mediaError = data.type === Hls.ErrorTypes.MEDIA_ERROR;
+            const needsRecovery = mediaError && (data.fatal || ['bufferAppendError', 'bufferAppendingError', 'fragParsingError'].includes(data.details));
+            if (needsRecovery && this.audioRecovery.requestRecovery('media error')) return;
             if (data.fatal) {
                 console.error('[WatchPage] HLS fatal error:', data);
                 // Try proxy on CORS error (only if not already proxied/transcoded)
@@ -649,6 +656,8 @@ class WatchPage {
 
     stop() {
         this.playbackGeneration = (this.playbackGeneration || 0) + 1;
+        this.audioRecovery?.dispose();
+        this.audioRecovery = null;
         // Stop history tracking and save final progress
         this.stopHistoryTracking();
         this.saveProgress();
