@@ -117,15 +117,6 @@ class WatchPage {
             window.addEventListener('resize', updateIosUiBottom);
         }
 
-        // iOS: use custom --vh unit to avoid 100vh issues with dynamic toolbar
-        const isIOS = /iP(hone|ad|od)/.test(navigator.userAgent);
-        const watchVideoSection = document.querySelector('.watch-video-section');
-        if (isIOS && watchVideoSection) {
-            const vh = window.innerHeight * 0.01;
-            document.documentElement.style.setProperty('--vh', `${vh}px`);
-            watchVideoSection.style.height = 'calc(var(--vh) * 100)';
-        }
-
         // Apply safe area + iOS toolbar padding to overlay
         if (this.overlay) {
             this.overlay.style.paddingBottom = 'calc(env(safe-area-inset-bottom, 0px) + var(--ios-ui-bottom, 0px) + 12px)';
@@ -481,17 +472,9 @@ class WatchPage {
                     this.setVolumeFromStorage();
                     return;
                 } else if (info.needsRemux) {
-                    // Remux (container swap) currently doesn't use session logic, uses direct stream
-                    // TODO: Move remux to session logic if seeking is needed for TS files
-                    console.log('[WatchPage] Auto: Using remux (.ts container)');
+                    console.log('[WatchPage] Auto: Using seekable remux session');
                     this.updateTranscodeStatus('remuxing', 'Remux (Auto)');
-                    this.getCaptionTracks().useNative();
-                    const finalUrl = this.getRemuxUrl(url, info.audioCodecs || [info.audio], program);
-                    this.video.src = finalUrl;
-                    this.video.play().catch(e => {
-                        if (e.name !== 'AbortError') console.error('[WatchPage] Autoplay error:', e);
-                    });
-                    this.setVolumeFromStorage();
+                    await this.playRemuxSession(url, info, program, playbackGeneration);
                     return;
                 }
                 // Compatible - fall through to normal playback
@@ -563,14 +546,7 @@ class WatchPage {
                 }
             }
             if (this.playbackGeneration !== playbackGeneration) return;
-            this.getCaptionTracks().setProbe(probeInfo, url);
-            this.getCaptionTracks().useNative();
-            const finalUrl = this.getRemuxUrl(url, probeInfo?.audioCodecs || (probeInfo?.audio ? [probeInfo.audio] : []), program);
-            this.video.src = finalUrl;
-            this.video.play().catch(e => {
-                if (e.name !== 'AbortError') console.error('[WatchPage] Autoplay error:', e);
-            });
-            this.setVolumeFromStorage();
+            await this.playRemuxSession(url, probeInfo, program, playbackGeneration);
             return;
         }
 
@@ -598,11 +574,22 @@ class WatchPage {
         this.setVolumeFromStorage();
     }
 
-    /**
-     * Play HLS stream using Hls.js
-     */
+    /** Start a seekable VOD session without re-encoding compatible video. */
+    async playRemuxSession(url, info, program, generation) {
+        this.getCaptionTracks().setProbe(info, url);
+        const playlist = await this.startTranscodeSession(url, {
+            program, videoMode: 'copy', seekOffset: this.resumeTime,
+            videoCodec: info?.video, audioCodec: info?.audio,
+            audioChannels: info?.audioChannels, videoHeight: info?.height
+        });
+        if (!playlist || this.playbackGeneration !== generation) return;
+        this.playHls(playlist);
+        this.setVolumeFromStorage();
+    }
+
     playHls(url) {
         if (this.hls) {
+            this.captionTracks?.captureRemoteSelection();
             this.hls.destroy();
         }
 
@@ -629,6 +616,15 @@ class WatchPage {
             this.video.play().catch(e => {
                 if (e.name !== 'AbortError') console.error('[WatchPage] Autoplay error:', e);
             });
+        });
+
+        this.hls.on(Hls.Events.LEVEL_LOADED, (event, data) => {
+            if (this.hls !== hls || this.playbackGeneration !== generation) return;
+            // A partial playlist is not the movie's total. Only learn an unknown duration at ENDLIST.
+            const duration = Number(data?.details?.totalduration);
+            if (this.currentSessionId && !this.sourceDuration && data?.details?.live === false && Number.isFinite(duration) && duration > 0) {
+                this.setSourceDuration((this.playbackTimeOffset || 0) + duration);
+            }
         });
 
         this.hls.on(Hls.Events.ERROR, (event, data) => {
@@ -737,6 +733,7 @@ class WatchPage {
         if (!this.currentSessionId) { this.video.currentTime = target; return; }
         const generation = this.playbackGeneration;
         this.pendingSeekProgress = target;
+        this.captionTracks?.captureRemoteSelection();
         this.hls?.destroy();
         this.hls = null;
         this.video.pause();

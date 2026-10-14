@@ -47,7 +47,7 @@ for (const name of ['VideoPlayer', 'WatchPage']) {
             for (const { url } of f.requests.filter(request => request.url.startsWith('/api/probe'))) {
                 assert.equal(new URL(url, 'http://app').searchParams.get('program'), '102');
             }
-            if (mode === 'forceTranscode' || mode === 'forceVideoTranscode') {
+            if (name === 'WatchPage' || mode === 'forceTranscode' || mode === 'forceVideoTranscode') {
                 assert.equal(f.sessions.length, 1);
                 assert.equal(f.sessions[0].options.program, '102');
             } else {
@@ -258,7 +258,7 @@ for (const name of ['VideoPlayer', 'WatchPage']) {
                 if (replace) {
                     assert.equal(probes.length, 2);
                     assert.equal(new URL(probes[1].url, 'http://app').searchParams.get('requestSequence'), '2');
-                    assert.equal(mode === 'forceTranscode' ? f.sessions.length : Number(f.player.video.src !== ''), 1);
+                    assert.equal(name === 'WatchPage' || mode === 'forceTranscode' ? f.sessions.length : Number(f.player.video.src !== ''), 1);
                 } else { assert.equal(f.sessions.length, 0); assert.equal(f.player.video.src, ''); }
             }
         });

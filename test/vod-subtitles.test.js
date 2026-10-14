@@ -83,7 +83,6 @@ test('Watch VOD probes expose real embedded subtitles for HLS and remux, align s
         await page.waitForFunction(() => Array.from(window.watch.video.textTracks).some(track => track.mode === 'showing' && Array.from(track.activeCues || []).some(cue => cue.text === 'French early')));
         await page.evaluate(() => window.watch.seekToContentTime(6));
         await page.waitForFunction(() => window.watch.hls?.url?.endsWith('/seek.m3u8') && document.querySelectorAll('#list button').length === 3);
-        await page.locator('#list button').nth(2).click();
         await page.waitForFunction(() => Array.from(window.watch.video.textTracks).some(track => track.mode === 'showing' && Array.from(track.cues || []).some(cue => cue.text === 'French late' && cue.startTime > 1.9 && cue.startTime < 2.1)));
         await page.evaluate(() => { window.watch.video.pause(); window.watch.video.currentTime = 3; });
         await page.waitForFunction(() => Array.from(window.watch.video.textTracks).some(track => track.mode === 'showing' && Array.from(track.activeCues || []).some(cue => cue.text === 'French late')));

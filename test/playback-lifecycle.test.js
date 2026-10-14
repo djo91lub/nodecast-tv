@@ -262,7 +262,7 @@ for (const name of ['VideoPlayer', 'WatchPage']) {
     test(`${name} ignores callbacks from an obsolete HLS instance`, () => {
         const window = {};
         class Hls extends EventEmitter {
-            static Events = { MANIFEST_PARSED: 'manifest', ERROR: 'error', SUBTITLE_TRACKS_UPDATED: 'subtitles', SUBTITLE_TRACK_SWITCH: 'switch', NON_NATIVE_TEXT_TRACKS_FOUND: 'non-native', CUES_PARSED: 'cues', FRAG_CHANGED: 'fragment', DESTROYING: 'destroying', MEDIA_ATTACHED: 'attached', MANIFEST_LOADING: 'manifest-loading' };
+            static Events = { MANIFEST_PARSED: 'manifest', LEVEL_LOADED: 'level', ERROR: 'error', SUBTITLE_TRACKS_UPDATED: 'subtitles', SUBTITLE_TRACK_SWITCH: 'switch', NON_NATIVE_TEXT_TRACKS_FOUND: 'non-native', CUES_PARSED: 'cues', FRAG_CHANGED: 'fragment', DESTROYING: 'destroying', MEDIA_ATTACHED: 'attached', MANIFEST_LOADING: 'manifest-loading' };
             static ErrorTypes = { NETWORK_ERROR: 'network', MEDIA_ERROR: 'media' };
             loadSource() {} attachMedia() {} destroy() { this.destroyed = true; }
         }

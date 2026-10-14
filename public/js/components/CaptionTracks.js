@@ -50,6 +50,7 @@ class CaptionTracks {
         this.generation++;
         this.hls = null;
         this.probe = null;
+        this.pendingRemoteSelection = null;
         this.timeOffset = 0;
         this.retireNativeTracks();
         this.onChange();
@@ -124,9 +125,18 @@ class CaptionTracks {
             this.remoteTracks.push(element);
             this.video.appendChild(element);
         }
+        const selected = this.remoteTracks[this.pendingRemoteSelection];
+        this.pendingRemoteSelection = null;
+        if (selected) selected.track.mode = 'showing';
+    }
+
+    captureRemoteSelection() {
+        this.pendingRemoteSelection = this.remoteTracks.findIndex(element => element.track.mode === 'showing');
     }
 
     bindHls(hls, events) {
+        const selected = this.remoteTracks.findIndex(element => element.track.mode === 'showing');
+        if (selected >= 0) this.pendingRemoteSelection = selected;
         this.generation++;
         this.hls = hls;
         this.manifestReady = false;
