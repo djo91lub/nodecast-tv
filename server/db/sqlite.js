@@ -151,7 +151,7 @@ function initSchema() {
     } catch (e) {
         // Column already exists, ignore
     }
-    
+
     console.log('[SQLite] Schema initialized');
 }
 

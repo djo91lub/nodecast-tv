@@ -147,7 +147,8 @@ test('real FFmpeg probes, remuxes and transcodes only the requested MPEG-TS prog
     const media = fs.readFileSync(source);
     const probe = routeFixture('probe.js');
     const app = express();
-    app.locals.ffprobePath = require('@ffprobe-installer/ffprobe').path;
+    app.locals.ffprobePath = spawnSync('ffprobe', ['-version'], { stdio: 'ignore' }).status === 0
+        ? 'ffprobe' : require('@ffprobe-installer/ffprobe').path;
     app.locals.ffmpegPath = binary;
     app.get('/multi.ts', (req, res) => res.end(media));
     app.use('/api/probe', probe.router); app.use('/api/remux', routeFixture('remux.js').router);
@@ -159,7 +160,7 @@ test('real FFmpeg probes, remuxes and transcodes only the requested MPEG-TS prog
     for (const [program, width, audio] of [['102', 96, 'aac'], ['101', 64, 'mp3'], ['102', 96, 'aac']]) {
         const response = await fetch(`${base}/api/probe?url=${url}&program=${program}`);
         assert.equal(response.status, 200);
-        const info = await response.json(); assert.equal(info.width, width); assert.deepEqual(info.audioCodecs, [audio]);
+        const info = await response.json(); assert.equal(info.width, width, JSON.stringify(info)); assert.deepEqual(info.audioCodecs, [audio]);
         const remux = await fetch(`${base}/api/remux?url=${url}&program=${program}&audioCodecs=${audio}`);
         assert.equal(remux.status, 200);
         const output = path.join(dir, `program${program}.mp4`); fs.writeFileSync(output, Buffer.from(await remux.arrayBuffer()));
