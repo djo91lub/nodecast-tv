@@ -422,25 +422,7 @@ class VideoPlayer {
      * Toggle fullscreen mode (cross-browser including Safari)
      */
     toggleFullscreen() {
-        const isFullscreen = document.fullscreenElement || document.webkitFullscreenElement;
-
-        if (isFullscreen) {
-            if (document.exitFullscreen) {
-                document.exitFullscreen();
-            } else if (document.webkitExitFullscreen) {
-                document.webkitExitFullscreen();
-            }
-        } else {
-            const element = this.container;
-            if (element.requestFullscreen) {
-                element.requestFullscreen().catch(err => console.error('Fullscreen error:', err));
-            } else if (element.webkitRequestFullscreen) {
-                element.webkitRequestFullscreen();
-            } else if (this.video.webkitEnterFullscreen) {
-                // iOS Safari: use native video fullscreen
-                this.video.webkitEnterFullscreen();
-            }
-        }
+        return PlayerFullscreen.toggle(this.video, this.container, document);
     }
 
     /**
@@ -1304,17 +1286,6 @@ class VideoPlayer {
 
         const nextIdx = currentIdx >= channels.length - 1 ? 0 : currentIdx + 1;
         window.app.channelList.selectChannel({ channelId: channels[nextIdx].id });
-    }
-
-    /**
-     * Toggle fullscreen
-     */
-    toggleFullscreen() {
-        if (document.fullscreenElement) {
-            document.exitFullscreen();
-        } else if (this.container) {
-            this.container.requestFullscreen();
-        }
     }
 
     async zapBeforeStreaming(channel, streamUrl, signal) {
