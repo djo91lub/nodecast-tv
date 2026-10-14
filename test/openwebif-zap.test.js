@@ -100,9 +100,13 @@ test('zap endpoint requires authentication and only zaps channels of zap-enabled
     const headers = { Cookie: login.cookie.split(';')[0] };
 
     const zapSource = await request('/api/sources', { headers: adminHeaders, body: {
-        type: 'm3u', name: 'Receiver', url: `${receiver.base}/web/services.m3u`, zapBeforeStreaming: true } });
+        type: 'm3u', name: 'Receiver', url: `${receiver.base}/web/services.m3u`, zapBeforeStreaming: true, zapDelay: 0 } });
     const plainSource = await request('/api/sources', { headers: adminHeaders, body: {
         type: 'm3u', name: 'Plain', url: `${receiver.base}/web/services.m3u` } });
+    assert.equal(zapSource.body.zapDelay, 0);
+    for (const program of [['101'], {}, true, '102:a', '65536', 0]) {
+        assert.equal((await request('/api/transcode/session', { headers: adminHeaders, body: { url: 'http://provider.test/media.ts', program } })).status, 400);
+    }
     const [channel] = await waitForChannels(request, adminHeaders, zapSource.body.id);
     assert.equal(channel.stream_id, RTP1);
     assert.equal(channel.program, '101');

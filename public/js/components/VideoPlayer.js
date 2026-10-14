@@ -646,13 +646,6 @@ class VideoPlayer {
      * Play a channel
      */
     async play(channel, streamUrl) {
-        
-        if(this.currentChannel != channel && channel?.zapBeforeStreaming){
-            await this.zapBeforeStreaming(channel, streamUrl);
-        }
-
-        this.currentChannel = channel;
-
         try {
             // Stop any WatchPage playback (movies/series) before starting Live TV
             window.app?.pages?.watch?.stop?.();
@@ -660,6 +653,15 @@ class VideoPlayer {
             // Stop current playback
             this.stop();
             const playbackGeneration = this.playbackGeneration;
+            if (channel?.zapBeforeStreaming) {
+                const controller = this.zapController = new AbortController();
+                await this.zapBeforeStreaming(channel, streamUrl, controller.signal);
+                if (this.playbackGeneration !== playbackGeneration) return;
+                this.zapController = null;
+            }
+            if (this.playbackGeneration !== playbackGeneration) return;
+            this.currentChannel = channel;
+            const programQuery = channel?.program == null ? '' : '&program=' + encodeURIComponent(channel.program);
             let probeInfo = null;
             this.updateTranscodeStatus('hidden');
 
@@ -677,7 +679,7 @@ class VideoPlayer {
             if (this.settings.autoTranscode) {
                 console.log('[Player] Auto Transcode enabled. Probing stream...');
                 try {
-                    const probeRes = await fetch(`/api/probe?url=${encodeURIComponent(streamUrl)}`);
+                    const probeRes = await fetch(`/api/probe?url=${encodeURIComponent(streamUrl)}${programQuery}`);
                     const info = await probeRes.json();
                     if (this.playbackGeneration !== playbackGeneration) return;
                     probeInfo = info;
@@ -723,7 +725,7 @@ class VideoPlayer {
                         // Raw .ts container - use remux
                         console.log('[Player] Auto: Using remux (.ts container)');
                         this.updateTranscodeStatus('remuxing', 'Remux (Auto)');
-                        const remuxUrl = this.getRemuxUrl(streamUrl, info.audioCodecs || [info.audio]);
+                        const remuxUrl = this.getRemuxUrl(streamUrl, info.audioCodecs || [info.audio], channel?.program);
                         this.currentUrl = remuxUrl;
                         this.getCaptionTracks().setProbe(probeInfo, streamUrl);
                         this.getCaptionTracks().useNative();
@@ -769,7 +771,7 @@ class VideoPlayer {
                 // Probe to get video codec for HEVC tag handling
                 let videoCodec = 'unknown';
                 try {
-                    const probeRes = await fetch(`/api/probe?url=${encodeURIComponent(streamUrl)}`);
+                    const probeRes = await fetch(`/api/probe?url=${encodeURIComponent(streamUrl)}${programQuery}`);
                     const info = await probeRes.json();
                     if (this.playbackGeneration !== playbackGeneration) return;
                 videoCodec = info.video;
@@ -815,20 +817,20 @@ class VideoPlayer {
 
             // Force Remux: Route through FFmpeg for container conversion
             // Applies to: 1) .ts streams when detected, or 2) ALL non-HLS streams when enabled
-            if (this.settings.forceRemux && (isRawTs || isExtensionless)) {
+            if ((this.settings.forceRemux || channel?.program != null) && (isRawTs || isExtensionless)) {
                 console.log('[Player] Force Remux enabled. Routing through FFmpeg remux...');
                 console.log('[Player] Stream type:', isRawTs ? 'Raw TS' : 'Extension-less (assumed TS)');
-                this.updateTranscodeStatus('remuxing', 'Remux (Force)');
+                this.updateTranscodeStatus('remuxing', this.settings.forceRemux ? 'Remux (Force)' : 'Remux (Program)');
                 if (!probeInfo) {
                     try {
-                        const response = await fetch(`/api/probe?url=${encodeURIComponent(streamUrl)}`);
+                        const response = await fetch(`/api/probe?url=${encodeURIComponent(streamUrl)}${programQuery}`);
                         probeInfo = await response.json();
                     } catch (error) {
                         console.warn('[Player] Remux probe failed:', error.message);
                     }
                 }
                 if (this.playbackGeneration !== playbackGeneration) return;
-                const remuxUrl = this.getRemuxUrl(streamUrl, probeInfo?.audioCodecs || (probeInfo?.audio ? [probeInfo.audio] : []));
+                const remuxUrl = this.getRemuxUrl(streamUrl, probeInfo?.audioCodecs || (probeInfo?.audio ? [probeInfo.audio] : []), channel?.program);
                 this.currentUrl = remuxUrl;
                 this.getCaptionTracks().setProbe(probeInfo, streamUrl);
                 this.getCaptionTracks().useNative();
@@ -902,6 +904,7 @@ class VideoPlayer {
             window.dispatchEvent(new CustomEvent('channelChanged', { detail: channel }));
 
         } catch (err) {
+            if (err.name === 'AbortError') return;
             console.error('Error playing channel:', err);
             this.showError('Failed to play channel');
         }
@@ -1109,8 +1112,9 @@ class VideoPlayer {
      * Get remuxed URL for a stream (container conversion only, no re-encoding)
      * Used for raw .ts streams that browsers can't play directly
      */
-    getRemuxUrl(url, audioCodecs = []) {
-        return `/api/remux?url=${encodeURIComponent(url)}&audioCodecs=${encodeURIComponent(audioCodecs.join(','))}`;
+    getRemuxUrl(url, audioCodecs = [], program = null) {
+        const selection = program == null ? '' : '&program=' + encodeURIComponent(program);
+        return `/api/remux?url=${encodeURIComponent(url)}&audioCodecs=${encodeURIComponent(audioCodecs.join(','))}${selection}`;
     }
 
     /**
@@ -1129,6 +1133,8 @@ class VideoPlayer {
      * Stop playback
      */
     stop() {
+        this.zapController?.abort();
+        this.zapController = null;
         this.playbackGeneration = (this.playbackGeneration || 0) + 1;
         this.audioRecovery?.dispose();
         this.audioRecovery = null;
@@ -1311,11 +1317,13 @@ class VideoPlayer {
         }
     }
 
-    async zapBeforeStreaming(channel, streamUrl) {
+    async zapBeforeStreaming(channel, streamUrl, signal) {
         if (!channel?.zapBeforeStreaming) return;
         if (!channel?.streamId || !streamUrl) return;
 
-        const delay = parseInt(channel.zapDelay) || 1500;
+        const requestedDelay = Number(channel.zapDelay ?? 1500);
+        const delay = Number.isFinite(requestedDelay) ? Math.max(0, Math.min(10000, requestedDelay)) : 1500;
+        signal?.throwIfAborted();
 
         try {
             console.log('[ZAP] before streaming:', {
@@ -1326,6 +1334,7 @@ class VideoPlayer {
 
             // The server resolves the receiver from the configured source
             const res = await fetch('/api/openwebif/zap', {
+                signal,
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -1338,8 +1347,14 @@ class VideoPlayer {
                 console.warn('[ZAP] backend returned:', res.status);
             }
 
-            await new Promise(resolve => setTimeout(resolve, delay));
+            await new Promise((resolve, reject) => {
+                const abort = () => { clearTimeout(timer); reject(Object.assign(new Error('Playback was superseded'), { name: 'AbortError' })); };
+                const timer = setTimeout(() => { signal?.removeEventListener('abort', abort); resolve(); }, delay);
+                signal?.addEventListener('abort', abort, { once: true });
+                if (signal?.aborted) abort();
+            });
         } catch (err) {
+            if (signal?.aborted || err.name === 'AbortError') throw err;
             console.warn('[ZAP] failed, continuing stream:', err);
         }
     }

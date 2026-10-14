@@ -1,3 +1,4 @@
+const { parseProgram } = require('./mpegTsProgram');
 const { redactUrl, redactText, validateHttpUrl, FFMPEG_PROTOCOL_WHITELIST } = require('./urlSecurity');
 /**
  * Transcode Session Service
@@ -103,7 +104,8 @@ class TranscodeSession extends EventEmitter {
             upscaleEnabled: options.upscaleEnabled || false,
             upscaleMethod: options.upscaleMethod || 'hardware', // 'hardware' or 'software'
             upscaleTarget: options.upscaleTarget || '1080p',
-            ...options
+            ...options,
+            program: parseProgram(options.program)
         };
     }
 

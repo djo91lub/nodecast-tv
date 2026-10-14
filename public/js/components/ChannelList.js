@@ -846,7 +846,7 @@ class ChannelList {
             url: stream.stream_url, // M3U has direct URLs
             program: stream.program || null,
             zapBeforeStreaming: source?.zapBeforeStreaming || false,
-            zapDelay: source?.zapDelay || 1500,
+            zapDelay: source?.zapDelay ?? 1500,
             groupId: `m3u_${sourceId}_${stream.category_id}`,
             groupTitle: categories.find(c => String(c.category_id) === String(stream.category_id))?.category_name || 'Uncategorized',
             sourceId,

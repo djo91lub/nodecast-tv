@@ -1,3 +1,4 @@
+const { parseProgram, selectProgramStreams } = require('../services/mpegTsProgram');
 const { redactUrl, redactText, validateHttpUrl, FFMPEG_PROTOCOL_WHITELIST } = require('../services/urlSecurity');
 const express = require('express');
 const router = express.Router();
@@ -41,6 +42,7 @@ function probeStream(url, ffprobePath, userAgent = null, timeout = 15000) {
             '-reconnect_delay_max', '10',
             '-print_format', 'json',
             '-show_streams',
+            '-show_programs',
             '-show_format',
             '-protocol_whitelist', FFMPEG_PROTOCOL_WHITELIST,
             '-probesize', '5000000',
@@ -84,8 +86,8 @@ function probeStream(url, ffprobePath, userAgent = null, timeout = 15000) {
 /**
  * Analyze probe result and determine compatibility
  */
-function analyzeProbeResult(probeResult, url) {
-    const streams = probeResult.streams || [];
+function analyzeProbeResult(probeResult, url, program = null) {
+    const streams = selectProgramStreams(probeResult, program);
     const format = probeResult.format || {};
 
     const videoStream = streams.find(s => s.codec_type === 'video');
@@ -152,13 +154,15 @@ function analyzeProbeResult(probeResult, url) {
 
 router.get('/', async (req, res) => {
     const { url, ua } = req.query;
+    let program;
+    try { program = parseProgram(req.query.program); } catch (error) { return res.status(400).json({ error: error.message }); }
     try { validateHttpUrl(url); } catch (error) { return res.status(400).json({ error: error.message }); }
     if (!url) {
         return res.status(400).json({ error: 'URL parameter is required' });
     }
 
     const ffprobePath = req.app.locals.ffprobePath;
-    const cacheKey = `${url}${ua ? `|${ua}` : ''}`;
+    const cacheKey = JSON.stringify([url, ua || '', program]);
 
     if (!ffprobePath) {
         // No ffprobe available - assume needs transcoding to be safe
@@ -184,7 +188,7 @@ router.get('/', async (req, res) => {
 
     try {
         const probeResult = await probeStream(url, ffprobePath, ua);
-        const analysis = analyzeProbeResult(probeResult, url);
+        const analysis = analyzeProbeResult(probeResult, url, program);
 
         // Cache result
         probeCache.set(cacheKey, { result: analysis, timestamp: Date.now() });

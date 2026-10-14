@@ -266,7 +266,7 @@ class SourceManager {
         <div class="form-group">
             <label for="source-zap-delay">Zap delay (ms)</label>
             <input type="number" id="source-zap-delay" class="form-input"
-                value="${source.zapDelay || 1500}" min="0" step="100">
+                value="${source.zapDelay ?? 1500}" min="0" max="10000" step="100">
         </div>
         ` : '';
 
@@ -282,7 +282,7 @@ class SourceManager {
         const username = document.getElementById('source-username')?.value.trim() || null;
         const password = document.getElementById('source-password')?.value.trim() || null;
         const zapBeforeStreaming = document.getElementById('source-zap-before-streaming')?.checked || false;
-        const zapDelay = parseInt(document.getElementById('source-zap-delay')?.value) || 1500;
+        const zapDelay = Number(document.getElementById('source-zap-delay')?.value ?? 1500);
 
         if (!name || !url) {
             alert('Name and URL are required');
@@ -347,7 +347,7 @@ class SourceManager {
             }
             if (type === 'm3u') {
                 data.zapBeforeStreaming = document.getElementById('source-zap-before-streaming')?.checked || false;
-                data.zapDelay = parseInt(document.getElementById('source-zap-delay')?.value) || 1500;
+                data.zapDelay = Number(document.getElementById('source-zap-delay')?.value ?? 1500);
             }
             await API.sources.update(id, data);
             document.getElementById('modal').classList.remove('active');

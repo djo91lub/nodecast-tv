@@ -1,3 +1,4 @@
+const { parseProgram } = require('../services/mpegTsProgram');
 const { redactUrl, redactText, validateHttpUrl, FFMPEG_PROTOCOL_WHITELIST } = require('../services/urlSecurity');
 const express = require('express');
 const router = express.Router();
@@ -34,8 +35,8 @@ transcodeSession.startCleanupInterval();
  */
 router.post('/session', startupLimit, async (req, res) => {
     const { url, seekOffset, videoMode, videoCodec, audioCodec, audioChannels, videoHeight, playbackLeaseId, requestSequence, isLive, program } = req.body;
-    // MPEG-TS program number (Enigma2 multi-program streams); digits only
-    const programNumber = /^\d+$/.test(String(program ?? '')) ? String(program) : null;
+    let programNumber;
+    try { programNumber = parseProgram(program); } catch (error) { return res.status(400).json({ error: error.message }); }
     const normalizedSeek = Number(seekOffset ?? 0);
     if (!Number.isFinite(normalizedSeek) || normalizedSeek < 0) return res.status(400).json({ error: "Invalid seek offset" });
     let session = null, disconnected = false;
