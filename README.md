@@ -211,6 +211,12 @@ All transcoding and stream processing settings are found in **Settings → Trans
 | **Force Backend Proxy** | Routes streams through the server for CORS headers | When streams fail with CORS errors, or using middleware |
 
 
+## Enigma2 / OpenWebif sources
+
+Add the receiver's bouquet export URL (for example, `http://receiver/web/services.m3u?bRef=...`) as an M3U source. Program tags select the matching video/audio service during probing, remux and transcoding. Tagged raw streams are remuxed even when Force Remux is off.
+
+For a single-tuner receiver, enable **Zap before streaming (Enigma2/OpenWebif)** on that source. The player releases its previous stream, tunes the configured receiver, and waits for the source's zap delay before starting playback. The default delay is 1500 ms; values from 0 to 10000 ms are supported. Stop and changing channels cancel pending playback startup. Live TV continues playing when you minimize the player and browse the guide or other pages. The receiver address comes from the administrator-managed source URL, and only imported channels can be tuned.
+
 ## Troubleshooting
 
 ### Video Won't Play (Black Screen or Loading Forever)

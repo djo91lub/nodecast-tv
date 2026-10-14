@@ -208,6 +208,7 @@ app.use('/api/probe', require('./routes/probe'));
 app.use('/api/subtitle', require('./routes/subtitle'));
 app.use('/api/settings', require('./routes/settings'));
 app.use('/api/history', require('./routes/history'));
+app.use('/api/openwebif', require('./routes/openwebif'));
 
 // SPA fallback - serve index.html for all non-API routes
 app.get('*', (req, res) => {

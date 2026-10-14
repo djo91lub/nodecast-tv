@@ -420,6 +420,8 @@ class WatchPage {
         this.stop();
         this.setSourceDuration(VodDuration.firstValid(VodDuration.fromContent(this.content || {}), knownDuration));
         const playbackGeneration = this.playbackGeneration;
+        const program = this.content?.program ?? this.content?.data?.program ?? null;
+        const programQuery = program == null ? '' : '&program=' + encodeURIComponent(program);
         let probeInfo = null;
 
         // Show loading spinner
@@ -444,7 +446,7 @@ class WatchPage {
             console.log('[WatchPage] Auto Transcode enabled. Probing stream...');
             try {
                 const ua = settings.userAgentPreset === 'custom' ? settings.userAgentCustom : settings.userAgentPreset;
-                const probeRes = await fetch(`/api/probe?url=${encodeURIComponent(url)}&ua=${encodeURIComponent(ua || '')}`);
+                const probeRes = await fetch(`/api/probe?url=${encodeURIComponent(url)}&ua=${encodeURIComponent(ua || '')}${programQuery}`);
                 const info = await probeRes.json();
                 if (this.playbackGeneration !== playbackGeneration) return;
                 probeInfo = info;
@@ -467,6 +469,7 @@ class WatchPage {
                     this.updateTranscodeStatus(statusMode, statusText);
                     if (this.playbackGeneration !== playbackGeneration) return;
                     const playlistUrl = await this.startTranscodeSession(url, {
+                        program,
                         videoMode,
                         seekOffset: this.resumeTime, // Ensure seekOffset is passed
                         videoCodec: info.video,
@@ -483,7 +486,7 @@ class WatchPage {
                     // TODO: Move remux to session logic if seeking is needed for TS files
                     console.log('[WatchPage] Auto: Using remux (.ts container)');
                     this.updateTranscodeStatus('remuxing', 'Remux (Auto)');
-                    const finalUrl = this.getRemuxUrl(url, info.audioCodecs || [info.audio]);
+                    const finalUrl = this.getRemuxUrl(url, info.audioCodecs || [info.audio], program);
                     this.video.src = finalUrl;
                     this.video.play().catch(e => {
                         if (e.name !== 'AbortError') console.error('[WatchPage] Autoplay error:', e);
@@ -508,6 +511,7 @@ class WatchPage {
             this.updateTranscodeStatus(statusMode, statusText);
             if (this.playbackGeneration !== playbackGeneration) return;
             const playlistUrl = await this.startTranscodeSession(url, {
+                program,
                 videoMode: 'encode',
                 seekOffset: this.resumeTime
             });
@@ -525,7 +529,7 @@ class WatchPage {
             let videoCodec = 'unknown';
             try {
                 const ua = settings.userAgentPreset === 'custom' ? settings.userAgentCustom : settings.userAgentPreset;
-                const probeRes = await fetch(`/api/probe?url=${encodeURIComponent(url)}&ua=${encodeURIComponent(ua || '')}`);
+                const probeRes = await fetch(`/api/probe?url=${encodeURIComponent(url)}&ua=${encodeURIComponent(ua || '')}${programQuery}`);
                 const info = await probeRes.json();
                 if (this.playbackGeneration !== playbackGeneration) return;
                 videoCodec = info.video;
@@ -533,6 +537,7 @@ class WatchPage {
 
             if (this.playbackGeneration !== playbackGeneration) return;
             const playlistUrl = await this.startTranscodeSession(url, {
+                program,
                 videoMode: 'copy',
                 videoCodec,
                 seekOffset: this.resumeTime
@@ -544,20 +549,20 @@ class WatchPage {
         }
 
         // Priority 2: Force Remux for raw TS streams
-        if (settings.forceRemux && isRawTs) {
+        if ((settings.forceRemux && isRawTs) || (program !== null && !looksLikeHls)) {
             console.log('[WatchPage] Force Remux enabled');
-            this.updateTranscodeStatus('remuxing', 'Remux (Force)');
+            this.updateTranscodeStatus('remuxing', settings.forceRemux ? 'Remux (Force)' : 'Remux (Program)');
             if (!probeInfo) {
                 try {
                     const ua = settings.userAgentPreset === 'custom' ? settings.userAgentCustom : settings.userAgentPreset;
-                    const response = await fetch(`/api/probe?url=${encodeURIComponent(url)}&ua=${encodeURIComponent(ua || '')}`);
+                    const response = await fetch(`/api/probe?url=${encodeURIComponent(url)}&ua=${encodeURIComponent(ua || '')}${programQuery}`);
                     probeInfo = await response.json();
                 } catch (error) {
                     console.warn('[WatchPage] Remux probe failed:', error.message);
                 }
             }
             if (this.playbackGeneration !== playbackGeneration) return;
-            const finalUrl = this.getRemuxUrl(url, probeInfo?.audioCodecs || (probeInfo?.audio ? [probeInfo.audio] : []));
+            const finalUrl = this.getRemuxUrl(url, probeInfo?.audioCodecs || (probeInfo?.audio ? [probeInfo.audio] : []), program);
             this.video.src = finalUrl;
             this.video.play().catch(e => {
                 if (e.name !== 'AbortError') console.error('[WatchPage] Autoplay error:', e);
@@ -647,8 +652,9 @@ class WatchPage {
         if (this.volumeSlider) this.volumeSlider.value = savedVolume;
     }
 
-    getRemuxUrl(url, audioCodecs = []) {
-        return `/api/remux?url=${encodeURIComponent(url)}&audioCodecs=${encodeURIComponent(audioCodecs.join(','))}`;
+    getRemuxUrl(url, audioCodecs = [], program = null) {
+        const selection = program == null ? '' : '&program=' + encodeURIComponent(program);
+        return `/api/remux?url=${encodeURIComponent(url)}&audioCodecs=${encodeURIComponent(audioCodecs.join(','))}${selection}`;
     }
 
     stop() {
