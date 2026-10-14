@@ -448,6 +448,7 @@ class WatchPage {
                 const info = await (this.playbackProbe ||= new PlaybackProbe(fetch)).read(url, { program, userAgent: ua || '' });
                 if (this.playbackGeneration !== playbackGeneration) return;
                 probeInfo = info;
+                this.getCaptionTracks().setProbe(info, url);
                 this.setSourceDuration(info.duration);
                 console.log(`[WatchPage] Probe result: video=${info.video}, audio=${info.audio}, ${info.width}x${info.height}, compatible=${info.compatible}`);
 
@@ -484,6 +485,7 @@ class WatchPage {
                     // TODO: Move remux to session logic if seeking is needed for TS files
                     console.log('[WatchPage] Auto: Using remux (.ts container)');
                     this.updateTranscodeStatus('remuxing', 'Remux (Auto)');
+                    this.getCaptionTracks().useNative();
                     const finalUrl = this.getRemuxUrl(url, info.audioCodecs || [info.audio], program);
                     this.video.src = finalUrl;
                     this.video.play().catch(e => {
@@ -531,6 +533,7 @@ class WatchPage {
                 const info = await (this.playbackProbe ||= new PlaybackProbe(fetch)).read(url, { program, userAgent: ua || '' });
                 if (this.playbackGeneration !== playbackGeneration) return;
                 videoCodec = info.video;
+                this.getCaptionTracks().setProbe(info, url);
             } catch (e) { if (e.name === 'AbortError') return; console.warn('Probe failed for force audio, assuming h264'); }
 
             if (this.playbackGeneration !== playbackGeneration) return;
@@ -560,6 +563,8 @@ class WatchPage {
                 }
             }
             if (this.playbackGeneration !== playbackGeneration) return;
+            this.getCaptionTracks().setProbe(probeInfo, url);
+            this.getCaptionTracks().useNative();
             const finalUrl = this.getRemuxUrl(url, probeInfo?.audioCodecs || (probeInfo?.audio ? [probeInfo.audio] : []), program);
             this.video.src = finalUrl;
             this.video.play().catch(e => {
@@ -583,6 +588,7 @@ class WatchPage {
         } else {
             // Direct playback for mp4/mkv/avi
             this.updateTranscodeStatus('direct', 'Direct Play');
+            this.getCaptionTracks().useNative({ allowProbe: !looksLikeHls });
             this.video.src = finalUrl;
             this.video.play().catch(e => {
                 if (e.name !== 'AbortError') console.error('[WatchPage] Autoplay error:', e);
@@ -613,6 +619,7 @@ class WatchPage {
         this.audioRecovery = new HlsAudioRecovery(hls, this.video, Hls.Events,
             () => this.hls === hls && this.playbackGeneration === generation,
             { beforeRecovery: () => this.getCaptionTracks().prepareMediaRecovery() });
+        this.getCaptionTracks().setTimeOffset(this.currentSessionId ? this.playbackTimeOffset : 0);
         this.getCaptionTracks().bindHls(hls, Hls.Events);
         this.hls.loadSource(url);
         this.hls.attachMedia(this.video);

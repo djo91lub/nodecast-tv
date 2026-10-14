@@ -6,6 +6,8 @@ class CaptionTracks {
         this.hls = null;
         this.probe = null;
         this.remoteTracks = [];
+        this.timeOffset = 0;
+        this.remoteCueTimes = new WeakMap();
         this.hlsTracks = new Map();
         this.retired = new Set();
         this.generation = 0;
@@ -48,12 +50,31 @@ class CaptionTracks {
         this.generation++;
         this.hls = null;
         this.probe = null;
+        this.timeOffset = 0;
         this.retireNativeTracks();
         this.onChange();
     }
 
     setProbe(info, url) {
         this.probe = { subtitles: info?.subtitles || [], url };
+    }
+
+    setTimeOffset(offset) {
+        this.timeOffset = Number.isFinite(Number(offset)) ? Math.max(0, Number(offset)) : 0;
+        for (const element of this.remoteTracks) this.alignRemoteCues(element);
+    }
+
+    alignRemoteCues(element) {
+        const track = element.track, mode = track.mode;
+        if (!track.cues?.length) return;
+        track.mode = 'hidden';
+        for (const cue of Array.from(track.cues || [])) {
+            if (!this.remoteCueTimes.has(cue)) this.remoteCueTimes.set(cue, { start: cue.startTime, end: cue.endTime });
+            const original = this.remoteCueTimes.get(cue);
+            cue.startTime = Math.max(0, original.start - this.timeOffset);
+            cue.endTime = Math.max(0, original.end - this.timeOffset);
+        }
+        track.mode = mode;
     }
 
     prepareMediaRecovery() {
@@ -97,6 +118,9 @@ class CaptionTracks {
             element.label = subtitle.title || subtitle.language || 'Subtitles';
             element.srclang = subtitle.language || '';
             element.src = `/api/subtitle?url=${encodeURIComponent(this.probe.url)}&index=${subtitle.index}`;
+            element.addEventListener('load', () => {
+                if (this.remoteTracks.includes(element)) this.alignRemoteCues(element);
+            });
             this.remoteTracks.push(element);
             this.video.appendChild(element);
         }
@@ -251,6 +275,8 @@ class CaptionTracks {
                     if (this.generation !== generation) return;
                     this.off();
                     track.mode = 'showing';
+                    const remote = this.remoteTracks.find(element => element.track === track);
+                    if (remote) this.alignRemoteCues(remote);
                 } });
         }
         const counts = new Map();
